@@ -165,6 +165,12 @@ function rgbToHex(c){const h=x=>Math.round(x*255).toString(16).padStart(2,'0');r
 return out;
 ```
 
+> **Per-variant token bindings ARE captured** (this closes the earlier "not captured this pass" gap). Preferred path: the deep tool (§7.2) returns `boundVariables` **already resolved to token name + collection + `codeSyntax`** — use it directly, no id→name round-trip. Only fall back to Recipe C (per-node `boundVariables` + `getVariableByIdAsync`) for a binding the deep tool left unresolved. Emit per variant, on the shard:
+> ```
+> variant.tokens[] = [{ role, token (dotted, e.g. "color.action.primary.bg", or null), key, type, literal }]
+> ```
+> — `role` is the bound field (`fills`, `strokes`, `itemSpacing`, `paddingLeft`, `topLeftRadius`, …). A **bound** field has `token`+`key`+`type` and `literal: null`; an **unbound** field has `token: null`, `key: null`, and the resolved `literal` (hex/number). Never both null; never invent a token name from a literal. The component-level `component.uses_tokens` is the **deduped set of dotted `token` names across all variants** (drop nulls). Capture per variant so cross-variant token differences are visible to `ds-write`.
+
 ### Recipe D — Walk descendant INSTANCEs WITHOUT crossing the instance boundary
 ```js
 // Composition metrics. Record each child's main key + parent-set key, but DO NOT
@@ -172,8 +178,10 @@ return out;
 // the child component's own definition, not to this component's composition.
 await figma.loadAllPagesAsync();
 const root = await figma.getNodeByIdAsync('VARIANT_NODE_ID');
-const childKeys = new Set();
-let instanceCount = 0, unresolvedMains = 0, maxDepth = 0;
+const ICON_KEYS = new Set([/* icon-manifest key set (§5.G / Step 1b) — inject here */]);
+const ICON_NAME = /(^|[^a-z])icon($|[^a-z])|glyph|vector/i;     // main/set NAME match (P1-4)
+const childKeys = new Set(), nonIconKeys = new Set();
+let instanceCount = 0, nonIconInstanceCount = 0, unresolvedMains = 0, maxDepth = 0;
 async function walk(node, depth) {
   for (const child of (node.children ?? [])) {
     if (child.type === 'INSTANCE') {
@@ -181,9 +189,13 @@ async function walk(node, depth) {
       maxDepth = Math.max(maxDepth, depth + 1);
       const main = await child.getMainComponentAsync();         // await — required
       if (!main) { unresolvedMains++; continue; }                // detached/missing → flag, don't guess
-      const setKey = main.parent?.type === 'COMPONENT_SET' ? main.parent.key : null;
-      childKeys.add(setKey ?? main.key);
-      // STOP — do not walk(child, ...). Boundary respected.
+      const setNode = main.parent?.type === 'COMPONENT_SET' ? main.parent : null;
+      const key = setNode?.key ?? main.key;
+      const name = setNode?.name ?? main.name;
+      const isIcon = ICON_KEYS.has(key) || ICON_NAME.test(name);
+      childKeys.add(key);                                        // icon still recorded in edges/contains…
+      if (!isIcon) { nonIconInstanceCount++; nonIconKeys.add(key); }   // …but excluded from the level-raising counts
+      // STOP — do not walk(child, ...). Boundary respected (icon subtrees never recursed into).
     } else {
       await walk(child, depth);                                  // keep walking non-instance frames
     }
@@ -191,6 +203,7 @@ async function walk(node, depth) {
 }
 await walk(root, 0);
 return { instanceCount, distinctChildComponents: childKeys.size,
+         nonIconInstanceCount, distinctNonIconChildComponents: nonIconKeys.size,
          maxInstanceDepth: maxDepth, childComponentKeys: [...childKeys], unresolvedMains };
 ```
 
@@ -249,11 +262,28 @@ When a `figma_execute` return exceeds the MCP tool's output token cap, the Conso
 
 ### 6c. Variant sampling for giant sets
 
-For a set above the row cap (config `max_variant_rows`, default ~250; opt out with `exhaustive_variants: true`):
+Two config knobs control this (exact names/defaults — do not rename):
 
-- Always capture **full axis option lists** and the **true `totalVariantCount`**.
+| Config knob | Type | Default | Effect |
+|---|---|---|---|
+| `max_variant_rows` | int | `250` | The per-set row cap; sets above it are sampled. |
+| `exhaustive_variants` | bool | `false` | When `true`, disables the cap entirely (capture every row). |
+
+The orchestrator resolves these into `meta.maxVariantRows` **once**, and every extraction subagent reads the cap from there:
+
+```
+meta.maxVariantRows = exhaustive_variants ? null : max_variant_rows
+```
+
+`null` means "no cap — exhaustive". A numeric value is the cap. Recipe F reads `meta.maxVariantRows` for its row cap; it does not hardcode `250`.
+
+For a set whose `totalVariantCount` exceeds the resolved cap (i.e. `meta.maxVariantRows != null && total > meta.maxVariantRows`):
+
+- Always capture **full axis option lists** (every option of every axis) and the **true `totalVariantCount`** (the real row count, not the sampled count).
 - Capture a **bounded representative sample** of variant rows (≤ ~40, covering axis boundaries/defaults), not every row.
 - Set `variantSampling: "sampled"` on the shard (else `"full"`). ds-write and ds-refresh must surface a sampled matrix as partial, never as the complete set.
+
+When `meta.maxVariantRows == null` (exhaustive), never sample: capture every row and set `variantSampling: "full"` regardless of size.
 
 ### Recipe F — One batched `figma_execute` over a set of keys (write-and-release)
 ```js
@@ -261,7 +291,7 @@ For a set above the row cap (config `max_variant_rows`, default ~250; opt out wi
 // The subagent then writes one components/<slug>.json per row and returns a one-line summary.
 await figma.loadAllPagesAsync();
 const SET_IDS = ['1:23', '1:45', '1:67'];        // this subagent's batch (re-resolved by id)
-const MAX_ROWS = 250;                            // config max_variant_rows
+const MAX_ROWS = null;                           // ← inject meta.maxVariantRows here (null = exhaustive; §6c)
 const out = [];
 for (const id of SET_IDS) {
   const cs = await figma.getNodeByIdAsync(id);
@@ -269,18 +299,86 @@ for (const id of SET_IDS) {
   const axes = cs.variantGroupProperties ?? {};
   const kids = cs.type === 'COMPONENT_SET' ? cs.children : [cs];
   const total = kids.length;
-  const sampled = total > MAX_ROWS;
+  const sampled = MAX_ROWS != null && total > MAX_ROWS;   // never sample when exhaustive (MAX_ROWS == null)
   const rows = (sampled ? kids.slice(0, 40) : kids).map(v => ({
     nodeId: v.id, key: v.key, name: v.name,      // name verbatim — round-trips into componentProperties
   }));
   out.push({
     id, name: cs.name, key: cs.key, type: cs.type, axes,
-    totalVariantCount: total, variantSampling: sampled ? 'sampled' : 'full',
+    totalVariantCount: total,                     // ALWAYS the true row count, never the sampled length
+    variantSampling: sampled ? 'sampled' : 'full',
     variants: rows,
   });
 }
 return out;   // if oversized, read the MCP's auto-saved result file instead of re-running (§6b)
 ```
+
+### Recipe G — Icon detection → collapse into `icons-manifest.json` (Step 1b)
+
+A design system's icon set is often 50–500 flat sibling COMPONENTs on one page. Extracting each as a full component shard is pure waste and pollutes composition counts. Detect them **once, up front** (Step 1b), collapse the whole set into `icons-manifest.json`, and record the icon **key set** for exclusion (used by Recipe D and §4).
+
+An untagged `COMPONENT` is an **icon** when it matches the signals below (a COMPONENT_SET is not an icon):
+
+- **No props:** empty/absent `componentPropertyDefinitions`.
+- **No instances inside:** zero descendant `INSTANCE` nodes.
+- **Vector-only subtree:** every leaf is `VECTOR | BOOLEAN_OPERATION | ELLIPSE | RECTANGLE | STAR | LINE` — **no `TEXT`, no `INSTANCE`**.
+- **Flat sibling cohort:** one of many (>~50) flat sibling COMPONENTs on a single page.
+- **Page-name boost:** the page name matches `/icon|glyph|iconograph/i` (strong signal; not required).
+
+```js
+await figma.loadAllPagesAsync();
+const VECTOR_LEAF = new Set(['VECTOR','BOOLEAN_OPERATION','ELLIPSE','RECTANGLE','STAR','LINE']);
+function vectorOnly(n){
+  const kids = n.children ?? [];
+  if (kids.length === 0) return VECTOR_LEAF.has(n.type);
+  return kids.every(c => (c.type === 'TEXT' || c.type === 'INSTANCE') ? false : vectorOnly(c));
+}
+const manifest = [];
+for (const page of figma.root.children) {
+  const comps = page.findAllWithCriteria({ types: ['COMPONENT'] })
+    .filter(c => c.parent?.type !== 'COMPONENT_SET');     // set members are not standalone icons
+  const pageBoost = /icon|glyph|iconograph/i.test(page.name);
+  if (comps.length < 50 && !pageBoost) continue;          // not an icon cohort
+  for (const c of comps) {
+    const noProps = !c.componentPropertyDefinitions || Object.keys(c.componentPropertyDefinitions).length === 0;
+    if (noProps && vectorOnly(c)) manifest.push({ name: c.name, key: c.key, nodeId: c.id, size: Math.round(c.width) });
+  }
+}
+return manifest;   // → icons-manifest.json {name,key,nodeId,size}; the key set feeds Recipe D + §4 exclusion
+```
+> Icons are **not** given component shards. They live only in `icons-manifest.json`. Their keys become the icon-manifest key set that Recipe D / §4 use to classify INSTANCE children as icons.
+
+### Recipe H — Cheap composition pre-scan (build `compositionEdges` early)
+
+Run this **before** the heavy deep/variant passes so classification (atom/molecule/organism) is known up front. It walks **only the children of each set's default variant** — no variant matrices, no per-variant walks — collecting child main/set keys. Much cheaper than Recipe D across every variant; stops at instance boundaries exactly like Recipe D.
+
+```js
+await figma.loadAllPagesAsync();
+const SET_IDS = ['1:23','1:45'];                 // all sets (or this batch)
+const edges = [];
+for (const id of SET_IDS) {
+  const cs = await figma.getNodeByIdAsync(id);
+  if (!cs) continue;
+  const def = cs.type === 'COMPONENT_SET' ? (cs.defaultVariant ?? cs.children[0]) : cs;
+  const kids = new Set();
+  let unresolved = 0;
+  async function walk(node){
+    for (const child of (node.children ?? [])) {
+      if (child.type === 'INSTANCE') {
+        const main = await child.getMainComponentAsync();
+        if (!main) { unresolved++; continue; }   // flag, never guess
+        const setNode = main.parent?.type === 'COMPONENT_SET' ? main.parent : null;
+        kids.add(setNode?.key ?? main.key);
+        // STOP at the instance boundary — do not recurse into the child's subtree.
+      } else { await walk(child); }
+    }
+  }
+  await walk(def);
+  edges.push({ fromKey: cs.key, childKeys: [...kids], unresolvedMains: unresolved });
+}
+return edges;   // → compositionEdges; classification decided before deep extraction runs
+```
+> This is a **default-variant-only** approximation: it's for early classification, not the authoritative per-variant `composedOf`. Recipe D still runs during deep extraction to catch variants whose child set differs.
 
 ---
 
@@ -290,7 +388,7 @@ Confirmed end-to-end against a large production MUI-based design system (~530 co
 
 1. **The inventory's token count is UNRELIABLE — never gate the token pass on it.** `figma_get_design_system_summary` reported `tokens: 0` for a file that actually has **1,439 variables across 7 collections** (the variables live in collections the summary doesn't tally). Always run the dedicated token pass (`figma_get_variables`) regardless of what the summary says. Treat the summary as a *component* inventory only.
 
-2. **The "component structure" tool is two tools, not one — call both.** `figma_get_component_details` returns the **variant matrix + axes + description + per-variant keys** but **NOT** token bindings, auto-layout, composition, or non-variant props. Those come from **`figma_get_component_for_development_deep`** (Desktop Bridge), which returns auto-layout, `reactions` (prototype state transitions), nested INSTANCE `mainComponent` refs, and **`boundVariables` already resolved to token names + collection + `codeSyntax`** (no manual id→name round-trip needed). Protocol: `details` for the matrix, then `…for_development_deep` on the default variant (and any variant whose structure differs) for tokens/layout/composition. Reserve raw `figma_execute` for what even the deep tool omits (e.g. resolving an INSTANCE `mainComponent.key` the deep tool left null — the `unresolvedMains` case).
+2. **The "component structure" tool is two tools, not one — call both.** `figma_get_component_details` returns the **variant matrix + axes + description + per-variant keys** but **NOT** token bindings, auto-layout, composition, or non-variant props. Those come from **`figma_get_component_for_development_deep`** (Desktop Bridge), which returns auto-layout, `reactions` (prototype state transitions), nested INSTANCE `mainComponent` refs, and **`boundVariables` already resolved to token names + collection + `codeSyntax`** (no manual id→name round-trip needed). Protocol: `details` for the matrix, then `…for_development_deep` on the default variant (and any variant whose structure differs) for tokens/layout/composition. Reserve raw `figma_execute` for what even the deep tool omits (e.g. resolving an INSTANCE `mainComponent.key` the deep tool left null — the `unresolvedMains` case). The resolved `boundVariables` are what populate the per-variant `variant.tokens[]` shape (§5, after Recipe C); `component.uses_tokens` is the deduped dotted-name set across variants.
 
 3. **`reactions` are a free state-machine signal.** The deep tool surfaces prototype interactions like `ON_HOVER → <Hovered variant>`. Capture them in `component.reactions`; `ds-write` documents them in the variant file's State section instead of synthesizing transitions.
 

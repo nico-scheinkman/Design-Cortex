@@ -57,29 +57,33 @@ prioritization (P0 = unlocks large systems at all; P0.5 = drain the cache fast; 
       - Done: `ds-write` intro documents the classifier→writers fan-out; Step 2 = classifier subagent →
         `classification.json`; Steps 3/4/5/6 run as parallel index/token/patterns/component writer subagents.
 
-> **Note (P1 groundwork laid, not fully implemented):** the schema now carries `variantSampling` / `maxVariantRows`
-> (P1-2) and the icon-exclusion `nonIcon*` counts (P1-4), and extraction-rules §6c documents the sampling policy —
-> but the config knobs (`max_variant_rows`, `exhaustive_variants`) are not yet wired into `.ds-kb-config.json`.
-> Branch-URL detection (P2-2) and page-chunked inventory (P2-1) landed alongside P0 since they were inseparable
-> from the touched steps. Remaining P1/P2 items are still open below.
+> **Note:** Branch-URL detection (P2-2) and page-chunked inventory (P2-1) landed alongside P0 since they were
+> inseparable from the touched steps. Remaining P2 items are still open below.
 
 ---
 
-## P1 — Correctness & cost  *(not yet)*
+## P1 — Correctness & cost  *(DONE — implemented 2026-07-01, via 5 file-partitioned subagents)*
 
-- [ ] **P1-1 · Pipeline extract→write per component** *(I1)* — Pair each component's Figma fetch with writing its
-      `.md`, building the KB while scanning; keep the shard as the refresh anchor. Requires a cheap composition
-      pre-scan first so classification's global graph is known before the paired pipeline runs.
-- [ ] **P1-2 · Variant-sampling cap** *(I3)* — Config knob `max_variant_rows` (default ~150–250) + `exhaustive_variants`
-      opt-out. For big sets capture full axis option lists + total count + a bounded representative sample
-      (≤~40 rows), and record `variantSampling: "full" | "sampled"` per shard so ds-write/refresh know the matrix is partial.
-- [ ] **P1-3 · Icon-collapse heuristic tuning** *(I4)* — Formalize the detection heuristic in ds-write
-      (no component-property defs, no child instances, vector-only, siblings > 50) beyond the P0-4 manifest hookup.
-- [ ] **P1-4 · Feed icon-manifest keys into icon-exclusion** *(I8)* — Pass the icon-manifest key set into the
-      composition/classification step so wrapped-icon instances (Rating=5 stars, List/TransferList=12, Sidenav=15)
-      don't inflate counts and wrongly promote atoms to molecules/organisms.
-- [ ] **P1-5 · Per-variant token resolution (depth gap)** — Resolve per-variant `boundVariables → token` (currently
-      `uses_tokens: []` / "Tokens: not captured this pass"). Needs a per-variant node read; fold into the P1-1 pipeline.
+- [x] **P1-1 · Pipeline extract→write per component** *(I1)* — Cheap composition pre-scan built; extract→write may overlap.
+      - Done: `ds-extract` Step 1c (child-instance-keys-only pre-scan → seeds `meta.json.compositionEdges` early);
+        `extraction-rules.md` Recipe H (bounded default-variant walk); `ds-write` Steps 1/2 consume `compositionEdges[]`
+        (shard-fallback) so a shard is writable as soon as it's on disk + the graph is known. Classifier stays authoritative.
+- [x] **P1-2 · Variant-sampling cap** *(I3)* — Config knobs wired end-to-end.
+      - Done: `.ds-kb-config.json(.example)` gain `max_variant_rows` (250) + `exhaustive_variants` (false);
+        `ds-extract` Step 0 sets `meta.maxVariantRows = exhaustive_variants ? null : max_variant_rows`, Step 3 samples
+        above the cap (full axis lists + `totalVariantCount` + ≤~40 rows, `variantSampling` flag); `extraction-rules.md`
+        §6c + Recipe F honor it; `ds-write`/`md-schema.md` surface sampled matrices as "N of M variants".
+- [x] **P1-3 · Icon-collapse heuristic tuning** *(I4)* — Detection formalized as a four-clause test.
+      - Done: `ds-extract` Step 1b + `extraction-rules.md` Recipe G + `atomic-classification-rules.md` all agree:
+        no property defs, zero descendant INSTANCEs, vector-only subtree, one of >~50 flat siblings on an icon page.
+- [x] **P1-4 · Feed icon-manifest keys into icon-exclusion** *(I8)* — Icon instances excluded from level counts.
+      - Done: an INSTANCE is an icon iff its main/set key ∈ icon-manifest key set OR name matches
+        `/(^|[^a-z])icon($|[^a-z])|glyph|vector/i`; classification runs on `nonIcon*` counts; icon still recorded in
+        `contains` but never raises the level (`ds-extract` Step 5 / Recipe D, `ds-write` Step 2, `atomic-classification-rules.md`).
+- [x] **P1-5 · Per-variant token resolution (depth gap)** — Closed.
+      - Done: `ds-extract` Step 3/4 capture `variant.tokens[] = [{role,token,key,type,literal}]` (deep-tool resolved
+        `boundVariables`, Recipe C fallback); component `uses_tokens` = deduped dotted names; `ds-write` Step 6 renders
+        per-option token rows with resolved values (unbound → literal, `token:null`, never invented). No more "not captured this pass".
 
 ## P2 — Robustness & ergonomics  *(not yet)*
 

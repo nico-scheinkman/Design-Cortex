@@ -25,7 +25,7 @@ The single entry point for a component. The proven shape: per-node Figma node + 
 | `code_component_name` | optional | `codeMapping.codeComponentName` | `null` if no code mapping. |
 | `code_path` | optional | `codeMapping.codePath` | `null` if no code mapping. |
 | `storybook_link` | optional | config | `null` if not configured. |
-| `uses_tokens` | yes | derived from variant `tokens[]` | Dotted token names, deduped. `[]` if none bound. |
+| `uses_tokens` | yes | derived from variant `tokens[]` | Deduped dotted token names across **all** the component's variants (`variant.tokens[].token`, dropping `null`s). `[]` if none bound. Unbound values are never listed here — they appear inline in the variant file as the literal with `token: null`. |
 | `uses_styles` | optional | `component.appliedStyles` | Shared style names. |
 | `composed_in` | yes | composition graph (parents) | Component names. `[]` if top-level. |
 | `contains` | yes | composition graph (children) | Component names. `[]` for an atom. |
@@ -38,8 +38,8 @@ The single entry point for a component. The proven shape: per-node Figma node + 
 
 1. `# <Name>` + a one-line callout describing what it is.
 2. `## Anatomy` — size, fill, typography, radius, key structural parts.
-3. `## Variant Groups` — table: `Group | Type | Options | Variant file`. Then a per-variant table: `Variant | Figma node | Figma key | Size | Description`.
-4. `## Total Variants` — the integer + the axis block.
+3. `## Variant Groups` — table: `Group | Type | Options | Variant file`. Then a per-variant table: `Variant | Figma node | Figma key | Size | Description`. When the set is `variantSampling: "sampled"`, this per-variant table lists only the representative sample (not every variant) and its header states **"N of M variants"** (N = rows shown, M = `totalVariantCount`).
+4. `## Total Variants` — the integer (`totalVariantCount`) + the axis block. When `variantSampling: "sampled"`, note it so a reader knows the per-variant table above is a sample, not exhaustive.
 5. `## When to Use` — intent. **If synthesized, mark it** (see frontmatter-rules.md).
 6. `## When NOT to Use` — intent. Same synthesized-marking rule.
 7. `## Composition Notes` — what it contains / where it's composed (from the graph). "Where it's used".
@@ -102,6 +102,8 @@ last_updated: "2026-06-24"
 
 > ⚠️ Variant value strings are verbatim from Figma — copy exactly (including any deliberate missing spaces) when setting `componentProperties`.
 
+> When `variantSampling: "sampled"`, title this table e.g. **"Variants (3 of 36)"** and show only the representative sample rows; the full count still lives in `## Total Variants`.
+
 ## Total Variants
 
 **36 variants** across 3 axes:
@@ -111,6 +113,8 @@ Hierarchy: Primary | Secondary | Ghost | Danger
 Size:      SM | MD | LG
 State:     Default | Hover | Disabled
 ```
+
+> If `variantSampling: "sampled"`, add: _Variant table above shows a representative sample (3 of 36); the axis block enumerates the full space._
 
 ## When to Use
 
@@ -169,6 +173,8 @@ One file per variant axis. Captures per-option usage and resolved token values.
 ### Body
 
 One `### <Option>` block per option, each with: **Usage**, **Background token**, **Label token** (each WITH resolved value), **States**, **`Code prop:`**.
+
+The token rows come from `variant.tokens[]` for that option — one row per `role` (e.g. `background`, `label`). Each row shows `<token dotted name> → <resolved value>` where `token` is the dotted name (or `token: null` when the fill/color is not bound to a variable) and the resolved value is the `literal`. When `token` is `null`, write the literal with an explicit `token: null` marker (e.g. `none — token: null, literal transparent`) — **never invent a token name for an unbound value**. This replaces any earlier "tokens not captured" placeholder: token roles and their resolved values are now carried on every variant option.
 
 ### Annotated example
 

@@ -90,6 +90,7 @@ kb-output/
 2. Validate each shard against its `$def` in `raw-extract.schema.json` (`metaFile`, `inventoryFile`, `tokensFile`, `component`). If `meta.incomplete` is non-empty, note it — those components/passes may produce lower-confidence output, and the final report must surface them.
 3. Read `meta.includeScreenshots` — if false, skip all PNG steps. Note `meta.figmaFileUrl` (and `meta.branchKey` if set) and `meta.generatedAt` for `index.json` and per-file frontmatter (`figma_link`, `last_updated`).
 4. **Never hold all shards in the orchestrator.** The orchestrator reads only `meta.json` + `inventory.json` (both small) to plan the fan-out; each subagent reads the heavy shards it needs. The rest of the protocol is pure transformation — **no Figma calls anywhere from here on.**
+5. **Extraction and writing may overlap.** `ds-extract` runs a composition pre-scan and lands `meta.json.compositionEdges[]` early, so the classifier can consume that graph instead of waiting on or re-deriving it from every shard. A component shard is eligible for its Step 6 writer as soon as it is on disk **and** the graph is known (edges present + `classification.json` row written) — the writer does not need the whole cache to be complete. The ds-extract/ds-write separation and the classifier's authority are unchanged; this is purely about not blocking on a fully-drained cache.
 
 ### Step 2 — Classify every component (ONE classifier subagent → `classification.json`)
 
@@ -101,8 +102,9 @@ The classifier applies `references/atomic-classification-rules.md`:
    - **atom** — no non-icon child component instances (`nonIconInstanceCount == 0`).
    - **molecule** — 2–4 non-icon atom instances as direct children, no nested molecules.
    - **organism** — contains a molecule, OR 5+ non-icon atom instances, OR manages its own layout (auto-layout with structural sections).
+   - **Icon instances never raise the level.** Any child whose `key` is in the `icons-manifest.json` key set (or that matches the icon patterns in the rules file) is a glyph primitive: it is excluded from `nonIconInstanceCount`/`distinctNonIconChildComponents`, so it cannot push a component from atom→molecule or molecule→organism. It IS still recorded in that component's `contains` (real composition) in step 3 — exclusion is about *level*, never about hiding the edge.
 2. Decide `confidence` per `confidence-levels.md`. Any `needs_human_review` trigger (structure varies across variants, `unresolvedMains > 0`, boundary straddle, category-not-atom) → `confidence: needs_human_review` and `category: "_review"`.
-3. Build the composition graph from each shard's `composition.childComponentKeys` (or `meta.json`'s `compositionEdges[]` if present) so each component gets `contains` (children) and `composed_in` (parents). Resolve keys to component names via `inventory.json`; if a key resolves to nothing, leave the literal key and lower confidence.
+3. Build the composition graph so each component gets `contains` (children) and `composed_in` (parents). Prefer `meta.json`'s `compositionEdges[]` (produced by the ds-extract composition pre-scan) as the graph source; fall back to each shard's `composition.childComponentKeys` where an edge is absent. Resolve keys to component names via `inventory.json`; if a key resolves to nothing, leave the literal key and lower confidence. Icon-primitive children resolved via `icons-manifest.json` appear in `contains` even though they did not affect the level.
 4. Write one `classification.json` row per component: `key`, `name`, `slug`, `category`, `confidence`, `contains`, `composed_in`, `reason`. This file drives both `index.json` and every writer's folder path.
 
 ### Step 3 — Write `index.json`
@@ -148,8 +150,8 @@ This is the bulk of the work and it parallelizes. Once `classification.json` exi
 
 For each non-icon component, at `components/<category>/<Name>/` (or `_review/<Name>/`):
 
-1. **`index.md` (Tier 1)** — full frontmatter + body sections per the component-index schema in `md-schema.md`: description, Anatomy, Variant Groups table, Total Variants, When to Use, When NOT to Use, Composition Notes, Auto-Layout, Accessibility. Use the proven shape — a Variants table with **per-node Figma node + key**, a variant-axis block, sub-components composed, and "Where it's used".
-2. **`variants/<group>.md` (Tier 2)** — one file per variant axis (kebab-case of the property name). Frontmatter (`component`, `variant_group`, `figma_property_name`, `figma_property_type`, `options`) + a body block per option: usage, background/label tokens **with resolved values**, states, and `Code prop:`.
+1. **`index.md` (Tier 1)** — full frontmatter + body sections per the component-index schema in `md-schema.md`: description, Anatomy, Variant Groups table, Total Variants, When to Use, When NOT to Use, Composition Notes, Auto-Layout, Accessibility. Use the proven shape — a Variants table with **per-node Figma node + key**, a variant-axis block, sub-components composed, and "Where it's used". Fill the `uses_tokens` frontmatter from the **deduped set of dotted `token` names across all this component's `variant.tokens[]`** (skip entries with `token: null`); `[]` if nothing is bound.
+2. **`variants/<group>.md` (Tier 2)** — one file per variant axis (kebab-case of the property name). Frontmatter (`component`, `variant_group`, `figma_property_name`, `figma_property_type`, `options`) + a body block per option. Render the per-option token rows **directly from `variant.tokens[]`** (the extractor now captures these — there is no "tokens not captured this pass" placeholder to emit): one row per entry keyed by `role` (e.g. background, label), showing the dotted `token` name **with its resolved `literal`** (`color.action.primary.background → #0057FF`). For an unbound value (`token: null`) render the `literal` alone and mark it `token: null` — **never invent a token name**. Then states and `Code prop:`.
 3. **Per-variant PNGs** — only if `screenshots` is present on the component and `meta.includeScreenshots` is true. Copy/reference the PNG beside `index.md` as `<variant-slug>.png`; reference it from `index.md` so it is graph-reachable.
 4. **Preserve verbatim** — variant value strings (used to set `componentProperties`, including deliberate missing spaces like `Label +Full width Input`), hash-suffixed property keys (`Label#a1b2c3`), component keys, and node ids are copied EXACTLY from the cache. Never normalize them in body text — only folder/file paths are slugified.
 5. **Surface sampled matrices as partial.** If a shard is `variantSampling: "sampled"`, the variant table lists the sample rows but the header states the true `totalVariantCount` and notes "showing a representative sample of N of M variants" — never present a sampled matrix as complete.
@@ -193,8 +195,9 @@ Collect the one-line summaries from every writer subagent, then print a concise 
 |---|---|
 | Component name / level | `classification.json` (level/confidence) + shard `composition` (non-icon) metrics |
 | Variant matrix (node + key) | `components/<slug>.json` → `variants[].{nodeId,key,name,props}` (+ `variantSampling`/`totalVariantCount`) |
+| Per-variant token rows / `uses_tokens` | `components/<slug>.json` → `variants[].tokens[].{role,token,key,type,literal}` (deduped dotted `token` names → `uses_tokens`) |
 | Token table row | `tokens.json` → `tokenCollections[].variables[].{name,resolvedValue,codeSyntax,description}` |
-| Composition graph | `classification.json` `contains`/`composed_in` (or `meta.json` `compositionEdges[]` + shard `composition.childComponentKeys`) |
+| Composition graph | `classification.json` `contains`/`composed_in` (from `meta.json` `compositionEdges[]`, falling back to shard `composition.childComponentKeys`) |
 | Icons (collapsed) | `icons-manifest.json` → single `Icon/` manifest entry |
 | Auto-layout block | `components/<slug>.json` → `autoLayout` |
 | Code mapping | `components/<slug>.json` → `codeMapping` |

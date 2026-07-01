@@ -23,14 +23,29 @@ The child levels needed for the molecule/organism test come from classifying the
 
 ## Icon instances are primitives (count exclusion)
 
-**Before applying the heuristic, exclude icon and icon-wrapper instances from the composition counts.** A control that merely wraps an icon (CloseButton, IconButton, a Button with a leading glyph) is structurally an atom even though the icon is technically a nested COMPONENT instance — often two levels deep (`Control → <ResizableIcon> → X glyph → Vector`). Counting those instances would wrongly promote a simple control to molecule/organism.
+**Icon instances are primitives — they are excluded from the counts that drive classification.** A control that merely wraps an icon (CloseButton, IconButton, a Button with a leading glyph, a Rating that repeats a star glyph) is structurally an atom even though each icon is technically a nested COMPONENT instance — often two levels deep (`Control → <ResizableIcon> → X glyph → Vector`). Counting those instances would wrongly promote a simple control to molecule/organism.
 
-A child instance is an **icon primitive** when any of these hold:
-- its main/set name matches an icon pattern (`Icon`, `*Icon`, `ResizableIcon`, `<Icon …>`, `Glyph`, `Vector`, single-letter glyph names like `X`); OR
-- it is an `INSTANCE_SWAP` target typed as an icon (the swap property name contains `Icon`); OR
-- its entire subtree is vector/boolean-op shapes with no text and no further component instances.
+An **INSTANCE is an icon** iff either holds:
+- its main/set **key** is in the **icon-manifest key set** (the definitive test — the manifest is the set of component keys extracted from the icon page/library); OR
+- its main/set **name** matches `/(^|[^a-z])icon($|[^a-z])|glyph|vector/i` (case-insensitive: the word "icon" bounded by non-letters or string ends, or "glyph"/"vector" anywhere — matches `Icon`, `ResizableIcon`, `<Icon …>`, `close-icon`, `Glyph`, `Vector`).
 
-Compute **`distinctNonIconChildComponents`** and **`nonIconInstanceCount`** by removing icon primitives, and run the heuristic on those. Keep the raw `instanceCount`/`distinctChildComponents` only for the report. (If the extractor already emits `composition.distinctNonIconChildComponents`, use it; otherwise derive it here from `childComponentKeys` + the icon patterns above.) Record any wrapped icon in the component's `contains` list regardless — it's real composition, it just doesn't change the atomic level.
+An `INSTANCE_SWAP` slot whose swap-property name contains `Icon` is also an icon slot and is excluded the same way.
+
+Classification runs on **`nonIconInstanceCount`** and **`distinctNonIconChildComponents`** (icon instances removed). Keep the raw `instanceCount`/`distinctChildComponents` only for the report. Prefer the extractor-emitted `composition.distinctNonIconChildComponents` / `nonIconInstanceCount`; only if absent, derive them here from `childComponentKeys` + the icon manifest + the name regex above.
+
+**The icon is STILL recorded in the component's `contains` list** — it is real composition. It simply does **not** raise the atomic level. Concrete examples:
+- A **Rating** that wraps 5 star glyphs → `nonIconInstanceCount == 0` → stays an **atom**; `contains: [Star]` (or the star icon name) is still recorded.
+- A **CloseButton / IconButton** wrapping only an icon → `nonIconInstanceCount == 0` → stays an **atom**; the icon appears in `contains`.
+
+### Icon-glyph detection signals (agrees with the icon-collapse rule)
+
+A leaf that *is itself an icon glyph* (not just wrapping one) is recognized by the same signals the icon-collapse rule uses, so classification and collapse stay consistent:
+- no property definitions of its own (no variant/boolean/text props);
+- no child component instances;
+- a **vector-only subtree** (vector / boolean-op shapes, no text);
+- typically **one of >50 flat siblings on a dedicated icon page**.
+
+When these signals hold the node is treated as an icon primitive for counting; when the instance's main resolves into the icon manifest, the manifest key test above already covers it.
 
 ---
 
@@ -120,3 +135,12 @@ Cache: `instanceCount = 1`, `maxInstanceDepth = 2`, the one nested instance is `
 - The icon-exclusion step removes `<ResizableIcon>` → `nonIconInstanceCount = 0`, `distinctNonIconChildComponents = 0`. Rule 1 matches → **atom**. The icon is still recorded in `contains: [ResizableIcon]`.
 - No review trigger fires, but two soft signals (synthesized When-to-Use/Accessibility; `unresolvedMains > 0`) cap it at **`confidence: medium`**.
 - Written to `components/atoms/CloseButton/`. This is the exact case that motivated the icon-primitive rule above.
+
+### Example G — `Rating` → atom, high
+
+Cache: `instanceCount = 5` — five `Star` glyph instances whose main keys are all in the icon manifest; `distinctChildComponents = 1`, `unresolvedMains = 0`, structure consistent across `Value` variants.
+
+- Naïve rule 3 (5+ instances) would say **organism** — **wrong**; the five children are all icon primitives.
+- Icon exclusion removes all five (manifest key match) → `nonIconInstanceCount = 0`, `distinctNonIconChildComponents = 0`. Rule 1 matches → **atom**. The star is still recorded in `contains: [Star]`.
+- No review trigger; consistent structure → **`confidence: high`**.
+- Written to `components/atoms/Rating/`. Repeating a glyph N times does not compose new structure.
