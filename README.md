@@ -64,16 +64,30 @@ An agent loads `index.json` → a component's `index.md` → only the variant sl
 
 ---
 
+## Install
+
+**Via npm (recommended)** — installs the skills into your project's `.claude/` and scaffolds the config:
+
+```bash
+npx design-cortex init          # in your project root
+```
+
+This drops the four skills into `.claude/skills/`, the schemas/references into `.claude/shared/`, and a `.ds-kb-config.json` template at the root. Nothing to build, no dependencies.
+
+**Or clone** and copy the `skills/` + `shared/` folders yourself — see `SETUP.md`.
+
+---
+
 ## Quickstart
 
-1. Copy `.ds-kb-config.json.example` to `.ds-kb-config.json` in your repo root and fill it in (see `SETUP.md`).
+1. `npx design-cortex init` (or fill in `.ds-kb-config.json` from the example) — set `figma_mcp` and `figma_file_url`.
 2. Connect your Figma MCP to the file.
 3. Run `ds-extract` (e.g. say "build my design system KB").
 4. `ds-write` runs automatically and produces `kb-output/`.
 5. Run `ds-validate` to confirm completeness.
 6. After Figma changes, run `ds-refresh`.
 
-Full setup, MCP options, and skill installation: **`SETUP.md`**.
+Full setup, MCP options, and manual skill installation: **`SETUP.md`**.
 
 ---
 

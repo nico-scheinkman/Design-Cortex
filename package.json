@@ -1,0 +1,46 @@
+{
+  "name": "design-cortex",
+  "version": "1.1.0",
+  "description": "Point an AI agent at your Figma design system and generate a portable, two-tier markdown knowledge base — every component, variant, token, and composition rule — that any agent can read at session start instead of querying Figma live.",
+  "bin": {
+    "design-cortex": "bin/cli.js"
+  },
+  "type": "commonjs",
+  "files": [
+    "bin/",
+    "skills/",
+    "shared/",
+    ".ds-kb-config.json.example",
+    "README.md",
+    "SETUP.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node bin/cli.js --version >/dev/null && echo ok"
+  },
+  "keywords": [
+    "figma",
+    "design-system",
+    "design-tokens",
+    "knowledge-base",
+    "claude",
+    "claude-code",
+    "cursor",
+    "mcp",
+    "ai-agents",
+    "skills"
+  ],
+  "author": "nico-scheinkman",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nico-scheinkman/Design-Cortex.git"
+  },
+  "homepage": "https://github.com/nico-scheinkman/Design-Cortex#readme",
+  "bugs": {
+    "url": "https://github.com/nico-scheinkman/Design-Cortex/issues"
+  },
+  "engines": {
+    "node": ">=16.7.0"
+  }
+}

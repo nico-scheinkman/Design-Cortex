@@ -1,6 +1,16 @@
 # Setup
 
-## 1. Install the skills
+## 0. Install via npm (fastest)
+
+```bash
+npx design-cortex init [target-dir]   # defaults to the current directory
+```
+
+Installs the four skills into `<target>/.claude/skills/`, the schemas/references into `<target>/.claude/shared/`, and a `.ds-kb-config.json` template at `<target>/` (an existing config is never overwritten). Then jump to **§2 Configure**. Prefer to install by hand? Use §1.
+
+---
+
+## 1. Install the skills manually
 
 The generator ships four skills under `skills/`. To make them invocable by your agent:
 
