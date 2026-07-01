@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/cover.png" alt="Design Cortex — automated Figma → markdown knowledge-base generator" width="820">
+</p>
+
 # Design System KB Generator
 
 Point an AI agent at your Figma design system, run it once, and get a structured, two-tier markdown **knowledge base** of your entire system — every component, variant, token, and composition rule — that any agent (Cursor, Claude Code, …) can read at session start instead of querying Figma live.
