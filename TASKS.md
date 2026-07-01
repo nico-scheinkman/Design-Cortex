@@ -85,7 +85,7 @@ prioritization (P0 = unlocks large systems at all; P0.5 = drain the cache fast; 
         `boundVariables`, Recipe C fallback); component `uses_tokens` = deduped dotted names; `ds-write` Step 6 renders
         per-option token rows with resolved values (unbound → literal, `token:null`, never invented). No more "not captured this pass".
 
-## P2 — Robustness & ergonomics  *(not yet)*
+## P2 — Robustness & ergonomics  *(DONE — completed 2026-07-01)*
 
 - [x] **P2-1 · Page-chunked inventory** *(I2)* — Recipe A now documents the paged per-page traversal (~15 pages/call)
       and the ~30s bridge command ceiling; `ds-extract` Step 1 references it. *(landed with P0)*
@@ -93,6 +93,9 @@ prioritization (P0 = unlocks large systems at all; P0.5 = drain the cache fast; 
       `meta.parentFileKey`, and warns; `ds-refresh` Step 1 enforces branch-scoped re-extraction. *(landed with P0)*
 - [x] **P2-3 · Stop trusting summary token counts** *(I5)* — `ds-extract` Step 1 + `extraction-rules.md §7.1` already
       warn never to gate the token pass on the summary; reinforced in Step 1. *(covered)*
-- [ ] **P2-4 · Concurrency guidance** — Document keeping bridge concurrency ≈4 (higher risks the 30s timeout).
-- [ ] **P2-5 · Budget awareness** — Surface an up-front cost estimate (a full extract of a ~5k-variant system
-      ≈ 450–500k tokens) so the user can scope (subset / breadth-shallow / full) before committing.
+- [x] **P2-4 · Concurrency guidance** — Documented: run ≈4 extraction subagents in flight (4–6 max), one batched
+      `figma_execute` each; higher risks the ~30s bridge command timeout. Stated in `ds-extract` Step 1d + Step 3 +
+      `extraction-rules.md §6a`.
+- [x] **P2-5 · Budget awareness** — `ds-extract` Step 1d prints an order-of-magnitude cost estimate from the inventory
+      counts (≈3–4k tokens/set + ~80–90k token pass + ~20k icons → ~450–500k for a ~130-set/~5k-variant system) and
+      offers scoping (full / subset / breadth-shallow) before committing; subset/shallow are recorded in `meta.incomplete`.

@@ -93,11 +93,20 @@ Call the **Lightweight inventory** function on the file → the full node map: e
 
 Do **not** give each its own `components/<slug>.json` — that would bloat the cache, `index.json`, and every consuming agent's first load. Instead write `.cache/icons-manifest.json` (`$defs/iconsManifestFile`) with one row per glyph (`name`, `key`, `nodeId`, `size`), set `report.iconsCollapsed`, and **record the icon `key` set** (`iconsManifest.iconKeys`) — Step 4 (per-variant token resolution) and Step 5 (composition exclusion) both consume it, and ds-write renders the manifest as a single `components/atoms/Icon/` entry. Record the standalone tally in `inventory.standaloneSummary`.
 
-**Step 1c — Composition pre-scan (cheap; populate the graph early).** Before any heavy deep extraction, run a **cheap composition pre-scan** that reads only **child-instance keys** per set — no variant matrices, no token bindings, no auto-layout — bounded per set (default variant plus any structurally-divergent variant only, capped at a few nodes per set). This populates `meta.json.compositionEdges` (`fromKey` → `toKey`, `via` = slot/layer name) **up front**, so the classification graph is known before the expensive Step 3 deep pass runs. Pre-scan recipe: `extraction-rules.md §5` (another agent is adding the bounded child-key-only recipe there; until it lands, use **Recipe D** restricted to child keys and skipping metric aggregation).
+**Step 1c — Composition pre-scan (cheap; populate the graph early).** Before any heavy deep extraction, run a **cheap composition pre-scan** that reads only **child-instance keys** per set — no variant matrices, no token bindings, no auto-layout — bounded per set (default variant plus any structurally-divergent variant only, capped at a few nodes per set). This populates `meta.json.compositionEdges` (`fromKey` → `toKey`, `via` = slot/layer name) **up front**, so the classification graph is known before the expensive Step 3 deep pass runs. Pre-scan recipe: `extraction-rules.md` **Recipe H** (bounded, default-variant-only, child-keys-only walk that stops at instance boundaries).
 
 - Apply the **icon-key exclusion** here too (icon instances go into the edges but are marked so they don't raise the level — see Step 5); the pre-scan edges are the *observed-edge* graph, not composition rules.
 - **Why early:** with the graph known up front, deep extraction (Step 3) and markdown writing (`ds-write`) may **overlap** — once a shard is written it is immediately eligible for ds-write's writer, instead of a hard two-phase barrier where all extraction must finish before any writing begins. The **shard remains the durable refresh anchor**; overlap is purely a latency optimization and changes no on-disk contract.
 - **Skill separation stays intact.** The pre-scan is an **extract-side optimization only** — it seeds `compositionEdges` so writing can start sooner. It does **not** classify: `ds-write`'s classifier remains authoritative over atom/molecule/organism, reading the same `compositionEdges` / non-icon counts. ds-extract still captures metrics only (Step 5).
+
+**Step 1d — Budget estimate & scoping (surface BEFORE the deep crawl).** Now that the inventory count is known, print a rough cost estimate and let the user scope before committing to a large run — a full deep extract of a big system is expensive and the user should choose the trade-off up front.
+
+- **Estimate (order-of-magnitude):** ≈ **3–4k tokens per component set** extracted (batched subagents) + **≈80–90k** for the token pass + **≈20k** for the icon pass. So a ~130-set / ~5,000-variant / ~1,400-token system lands around **450–500k tokens**; scale linearly from the inventory counts. State the estimate as a range, not a promise.
+- **Offer scoping options** and proceed on the user's choice (default: **full** if they don't answer and the estimate is modest):
+  - **full** — every set, deep.
+  - **subset** — restrict to given pages or a name prefix (e.g. only `Button*`, or one page); record the filter in `meta.incomplete` so refresh/validate know the KB is partial.
+  - **breadth-shallow** — all sets but lean: rely on variant sampling (Step 3 cap), skip screenshots, skip large icon families beyond the manifest.
+- **Concurrency / limits (applies to Step 3):** run **≈4 extraction subagents in flight** (4–6 max). Subagents reach the local bridge fine, but higher concurrency risks the **~30s bridge command timeout** under contention. One batched `figma_execute` per subagent, per Step 3.
 
 ---
 
@@ -239,7 +248,8 @@ Do **not** start writing markdown yourself — that is `ds-write`'s job. Stop he
 | 0 Pre-flight | Lightweight inventory (reachability ping) | initializes `.cache/meta.json` (+ branch keys) |
 | 1 Inventory | Lightweight inventory (+ Recipe A / paged traversal) | `.cache/inventory.json` (work queue, keys) |
 | 1b Icons | _(from inventory)_ | `.cache/icons-manifest.json` (collapsed glyph set + `iconKeys`) |
-| 1c Composition pre-scan | Child-instance keys only, bounded (+ Recipe D, keys only) | `meta.json.compositionEdges` seeded early (enables Step 3 / ds-write overlap) |
+| 1c Composition pre-scan | Child-instance keys only, bounded (Recipe H) | `meta.json.compositionEdges` seeded early (enables Step 3 / ds-write overlap) |
+| 1d Budget estimate | _(from inventory counts)_ | printed cost range + scoping choice (full / subset / breadth-shallow); ≈4 concurrency for Step 3 |
 | 2 One-shot | Whole-system one-shot (paging fallback) | bulk shards or skip |
 | 3 Per-component | Component structure + variants + **per-variant `tokens[]`** + sampling, **batched subagents** (+ Recipe B/C) | `.cache/components/<slug>.json` (one per set; `variantSampling`, `uses_tokens`) |
 | 4 Tokens | Tokens + styles (+ Recipe C/E) | `.cache/tokens.json` (global graph; reconciles Step-3 bindings by key) |
