@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "root-index.schema.json",
+  "title": "Root index.json",
+  "description": "The table of contents for the entire KB. The first file any consuming agent loads.",
+  "type": "object",
+  "required": ["generated_at", "figma_file", "components", "token_categories", "pattern_files"],
+  "properties": {
+    "generated_at": { "type": "string", "format": "date-time" },
+    "figma_file": { "type": "string" },
+    "storybook": { "type": ["string", "null"] },
+    "freshness_warning_after_days": { "type": "integer", "default": 7 },
+    "token_categories": { "type": "array", "items": { "type": "string" } },
+    "pattern_files": { "type": "array", "items": { "type": "string" } },
+    "components": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "category", "path", "figma_component_id", "confidence"],
+        "properties": {
+          "name": { "type": "string" },
+          "category": { "type": "string", "enum": ["atoms", "molecules", "organisms", "_review"] },
+          "path": { "type": "string" },
+          "figma_component_id": { "type": "string" },
+          "figma_component_key": { "type": "string", "description": "Stable anchor used by ds-refresh" },
+          "variant_groups": { "type": "array", "items": { "type": "string" } },
+          "total_variants": { "type": "integer" },
+          "has_code_mapping": { "type": "boolean" },
+          "composed_in": { "type": "array", "items": { "type": "string" } },
+          "confidence": { "type": "string", "enum": ["high", "medium", "low", "needs_human_review"] }
+        }
+      }
+    }
+  }
+}

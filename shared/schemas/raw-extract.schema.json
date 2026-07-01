@@ -1,0 +1,337 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "raw-extract.schema.json",
+  "title": "Raw Extract (sharded cache)",
+  "description": "The cache ds-extract writes and ds-write consumes. As of extractor v1.1.0 the cache is SHARDED across several files under `<output_path>/.cache/` so no single file (and no single agent read) ever holds the whole system — this is what lets the generator scale past a few hundred variants. The layout is:\n\n  .cache/meta.json            → conforms to $defs/metaFile      (run meta + global composition graph + report)\n  .cache/inventory.json       → conforms to $defs/inventoryFile  (the work queue: every COMPONENT/COMPONENT_SET)\n  .cache/tokens.json          → conforms to $defs/tokensFile     (all token collections)\n  .cache/icons-manifest.json  → conforms to $defs/iconsManifestFile (collapsed icon set; optional — only if icons detected)\n  .cache/components/<slug>.json → conforms to $defs/component    (ONE component set per file — the heavy variant matrices)\n  .cache/classification.json  → conforms to $defs/classificationFile (written by ds-write's classifier stage, not ds-extract)\n\nThe legacy single-file `raw-extract.json` (a top-level object with `meta`, `components[]`, `tokenCollections[]`, `compositionEdges[]`, `report`) is still accepted by ds-write for backward compatibility, but ds-extract no longer produces it. `<slug>` is the PascalCased component-set name per naming-conventions.md — the same slug ds-write uses for the folder.",
+  "type": "object",
+  "description_legacy": "A whole-cache object (legacy single-file form). New runs shard instead; validate each shard against its $def below.",
+  "properties": {
+    "meta": { "$ref": "#/$defs/meta" },
+    "components": { "type": "array", "items": { "$ref": "#/$defs/component" } },
+    "compositionEdges": { "type": "array", "items": { "$ref": "#/$defs/compositionEdge" } },
+    "tokenCollections": { "type": "array", "items": { "$ref": "#/$defs/tokenCollection" } },
+    "report": { "$ref": "#/$defs/report" }
+  },
+  "$defs": {
+    "metaFile": {
+      "type": "object",
+      "description": "`.cache/meta.json` — small global state, safe to hold in orchestrator context.",
+      "required": ["meta"],
+      "properties": {
+        "meta": { "$ref": "#/$defs/meta" },
+        "compositionEdges": { "type": "array", "items": { "$ref": "#/$defs/compositionEdge" }, "description": "Flat deduped who-contains-whom graph. May be written at extract time OR rebuilt by ds-write's classifier from each shard's composition.childComponentKeys." },
+        "report": { "$ref": "#/$defs/report" }
+      }
+    },
+    "inventoryFile": {
+      "type": "object",
+      "description": "`.cache/inventory.json` — the authoritative work queue and truncation check. Lightweight: one row per component, no variant matrices.",
+      "required": ["components"],
+      "properties": {
+        "components": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "nodeId", "key", "type"],
+            "properties": {
+              "name": { "type": "string" },
+              "nodeId": { "type": "string" },
+              "key": { "type": "string" },
+              "setId": { "type": ["string", "null"] },
+              "page": { "type": "string" },
+              "type": { "type": "string", "enum": ["COMPONENT_SET", "COMPONENT"] },
+              "size": { "type": "object", "properties": { "w": { "type": "number" }, "h": { "type": "number" } } },
+              "approxVariantCount": { "type": ["integer", "null"], "description": "Cheap variant-count estimate used to route batching (small → batched subagent; large → own subagent)." },
+              "shard": { "type": ["string", "null"], "description": "Relative path of the written shard, e.g. components/Button.json — null until extracted (drives resume)." }
+            }
+          }
+        },
+        "standaloneSummary": {
+          "type": "object",
+          "description": "Summary of standalone (non-set) COMPONENTs, e.g. the icon-page count, so nothing is silently dropped.",
+          "properties": {
+            "total": { "type": "integer" },
+            "iconCount": { "type": "integer" },
+            "nonIconCount": { "type": "integer" },
+            "iconPage": { "type": ["string", "null"] }
+          }
+        }
+      }
+    },
+    "tokensFile": {
+      "type": "object",
+      "description": "`.cache/tokens.json` — all token collections in one file (tokens are read whole by the token-tree writer).",
+      "required": ["tokenCollections"],
+      "properties": {
+        "tokenCollections": { "type": "array", "items": { "$ref": "#/$defs/tokenCollection" } }
+      }
+    },
+    "iconsManifestFile": {
+      "type": "object",
+      "description": "`.cache/icons-manifest.json` — ONE entry for a large flat set of zero-variant vector-only glyph COMPONENTs (collapsed instead of N shards). ds-write renders this as a single components/atoms/Icon/ manifest, NOT N folders.",
+      "required": ["icons"],
+      "properties": {
+        "page": { "type": ["string", "null"], "description": "Page the glyphs live on, e.g. 'Icons'." },
+        "count": { "type": "integer" },
+        "icons": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "key", "nodeId"],
+            "properties": {
+              "name": { "type": "string" },
+              "key": { "type": "string", "description": "Stable published key — the refresh anchor for each glyph." },
+              "nodeId": { "type": "string" },
+              "size": { "type": "object", "properties": { "w": { "type": "number" }, "h": { "type": "number" } } }
+            }
+          }
+        }
+      }
+    },
+    "classificationFile": {
+      "type": "object",
+      "description": "`.cache/classification.json` — written by ds-write's classifier stage (needs the GLOBAL graph). Maps each component slug/key to its resolved level so per-component writer subagents don't each need the whole graph.",
+      "required": ["components"],
+      "properties": {
+        "generatedFrom": { "type": ["string", "null"], "description": "meta.generatedAt of the cache it was built from." },
+        "components": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["key", "name", "category"],
+            "properties": {
+              "key": { "type": "string" },
+              "name": { "type": "string" },
+              "slug": { "type": "string" },
+              "category": { "type": "string", "enum": ["atoms", "molecules", "organisms", "_review"] },
+              "confidence": { "type": "string", "enum": ["high", "medium", "low", "needs_human_review"] },
+              "contains": { "type": "array", "items": { "type": "string" }, "description": "Resolved child component names." },
+              "composed_in": { "type": "array", "items": { "type": "string" }, "description": "Resolved parent component names." },
+              "reason": { "type": ["string", "null"], "description": "Why this level/confidence (e.g. boundary-straddle, category-not-atom)." }
+            }
+          }
+        }
+      }
+    },
+    "compositionEdge": {
+      "type": "object",
+      "required": ["fromKey", "toKey"],
+      "description": "One edge of the flat, deduped who-contains-whom graph. Derived from descendant trees.",
+      "properties": {
+        "from": { "type": "string" },
+        "fromKey": { "type": "string" },
+        "to": { "type": "string" },
+        "toKey": { "type": "string" },
+        "via": { "type": ["string", "null"], "description": "Slot/layer name where the child appears" }
+      }
+    },
+    "report": {
+      "type": "object",
+      "properties": {
+        "componentCount": { "type": "integer" },
+        "variantCount": { "type": "integer" },
+        "missingDescriptions": { "type": "array", "items": { "type": "string" } },
+        "unmappedVariants": { "type": "array", "items": { "type": "string" } },
+        "unboundColorVariants": { "type": "integer" },
+        "lowConfidenceClassifications": { "type": "array", "items": { "type": "string" } },
+        "missingTokenRefs": { "type": "array", "items": { "type": "string" } },
+        "missingCodeMapping": { "type": "array", "items": { "type": "string" } },
+        "unresolvedInstanceMains": { "type": "array", "items": { "type": "string" } },
+        "iconsCollapsed": { "type": ["integer", "null"], "description": "How many standalone glyph COMPONENTs were collapsed into icons-manifest.json." }
+      }
+    },
+    "meta": {
+      "type": "object",
+      "required": ["fileName", "figmaFileUrl", "generatedAt", "extractorVersion", "mcp"],
+      "properties": {
+        "fileName": { "type": "string" },
+        "figmaFileUrl": { "type": "string" },
+        "branchKey": { "type": ["string", "null"], "description": "Set when figma_file_url is a /branch/ URL — refresh is branch-scoped to this key." },
+        "parentFileKey": { "type": ["string", "null"], "description": "The parent file key when the URL is a branch." },
+        "generatedAt": { "type": "string", "format": "date-time" },
+        "extractorVersion": { "type": "string" },
+        "mcp": { "type": "string", "description": "Which MCP profile was used: official | desktop | console | custom" },
+        "cacheLayout": { "type": "string", "enum": ["sharded", "single-file"], "description": "sharded (v1.1.0+) or single-file (legacy). ds-write branches on this." },
+        "maxVariantRows": { "type": ["integer", "null"], "description": "Per-set variant-row cap applied this run (null = exhaustive)." },
+        "passesCompleted": { "type": "array", "items": { "type": "string" } },
+        "incomplete": { "type": "array", "items": { "type": "string" }, "description": "Components/passes that did not complete (e.g. paging fallback partial)" },
+        "includeScreenshots": { "type": "boolean" }
+      }
+    },
+    "component": {
+      "type": "object",
+      "required": ["name", "nodeId", "key", "type"],
+      "properties": {
+        "name": { "type": "string", "description": "Raw Figma name, verbatim" },
+        "nodeId": { "type": "string", "description": "Session-specific; re-resolved from key on refresh" },
+        "key": { "type": "string", "description": "Stable published component key — the anchor across sessions/refreshes" },
+        "setId": { "type": ["string", "null"] },
+        "page": { "type": "string" },
+        "type": { "type": "string", "enum": ["COMPONENT_SET", "COMPONENT"] },
+        "variantSampling": { "type": ["string", "null"], "enum": ["full", "sampled", null], "description": "full = every variant row captured; sampled = axis option lists + total count + a bounded representative sample only (large sets). ds-write/refresh must surface a sampled matrix as partial." },
+        "totalVariantCount": { "type": ["integer", "null"], "description": "True total variant count even when variants[] is a sample." },
+        "description": { "type": ["string", "null"] },
+        "docLinks": { "type": "array", "items": { "type": "string" } },
+        "size": {
+          "type": "object",
+          "properties": { "w": { "type": "number" }, "h": { "type": "number" } }
+        },
+        "axes": {
+          "type": "object",
+          "description": "Variant groups: { axisName: { values: [...] } }",
+          "additionalProperties": {
+            "type": "object",
+            "properties": { "values": { "type": "array", "items": { "type": "string" } } }
+          }
+        },
+        "nonVariantProps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["key", "name", "type"],
+            "properties": {
+              "key": { "type": "string", "description": "Raw hash-suffixed key, e.g. Label#a1b2c3 — preserve verbatim" },
+              "name": { "type": "string" },
+              "type": { "type": "string", "enum": ["TEXT", "BOOLEAN", "INSTANCE_SWAP", "SLOT", "VARIANT"] },
+              "defaultValue": {},
+              "preferredValues": { "type": ["array", "null"] },
+              "description": { "type": ["string", "null"] }
+            }
+          }
+        },
+        "variants": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/variant" }
+        },
+        "autoLayout": { "$ref": "#/$defs/autoLayout" },
+        "appliedStyles": { "type": "array", "items": { "type": "string" } },
+        "composition": {
+          "type": "object",
+          "properties": {
+            "instanceCount": { "type": "integer" },
+            "distinctChildComponents": { "type": "integer" },
+            "nonIconInstanceCount": { "type": "integer", "description": "instanceCount minus icon/icon-wrapper instances — the count classification actually uses" },
+            "distinctNonIconChildComponents": { "type": "integer", "description": "distinctChildComponents minus icon primitives; drives the atom/molecule/organism level" },
+            "maxInstanceDepth": { "type": "integer" },
+            "childComponentKeys": { "type": "array", "items": { "type": "string" } },
+            "unresolvedMains": { "type": "integer" }
+          }
+        },
+        "reactions": {
+          "type": "array",
+          "description": "Prototype interactions found on variants (e.g. ON_HOVER → another variant). Useful for documenting state transitions.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "trigger": { "type": "string" },
+              "from": { "type": ["string", "null"] },
+              "toNodeId": { "type": ["string", "null"] },
+              "to": { "type": ["string", "null"] }
+            }
+          }
+        },
+        "codeMapping": {
+          "type": ["object", "null"],
+          "properties": {
+            "codeComponentName": { "type": ["string", "null"] },
+            "codePath": { "type": ["string", "null"] },
+            "props": { "type": ["array", "null"], "items": { "type": "string" } },
+            "confidence": { "type": "string", "enum": ["high", "medium", "low"] }
+          }
+        },
+        "screenshots": {
+          "type": ["object", "null"],
+          "description": "variantSlug -> relative png path (only if include_screenshots)",
+          "additionalProperties": { "type": "string" }
+        },
+        "flags": {
+          "type": "object",
+          "properties": {
+            "missingDescription": { "type": "boolean" },
+            "unboundColors": { "type": "integer" },
+            "namePrefix": { "type": ["string", "null"] }
+          }
+        }
+      }
+    },
+    "variant": {
+      "type": "object",
+      "required": ["nodeId", "key", "name"],
+      "properties": {
+        "nodeId": { "type": "string" },
+        "key": { "type": "string" },
+        "name": { "type": "string", "description": "Raw, verbatim — e.g. 'Hierarchy=Primary, Size=MD, State=Default'" },
+        "props": { "type": "object", "additionalProperties": { "type": "string" } },
+        "size": { "type": "object", "properties": { "w": { "type": "number" }, "h": { "type": "number" } } },
+        "description": { "type": ["string", "null"] },
+        "tokens": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["role"],
+            "properties": {
+              "role": { "type": "string", "description": "fills | strokes | itemSpacing | paddingLeft | … | text" },
+              "token": { "type": ["string", "null"], "description": "Dotted token name, or null if unbound" },
+              "key": { "type": ["string", "null"] },
+              "type": { "type": ["string", "null"] },
+              "literal": { "type": ["string", "null"], "description": "Resolved literal value when token is null (e.g. #0057FF)" }
+            }
+          }
+        },
+        "composedOf": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "setKey": { "type": ["string", "null"] },
+              "setName": { "type": ["string", "null"] },
+              "mainKey": { "type": ["string", "null"] },
+              "mainName": { "type": ["string", "null"] },
+              "depth": { "type": "integer" }
+            }
+          }
+        }
+      }
+    },
+    "autoLayout": {
+      "type": ["object", "null"],
+      "properties": {
+        "direction": { "type": ["string", "null"], "enum": ["HORIZONTAL", "VERTICAL", null] },
+        "paddingLeft": {}, "paddingRight": {}, "paddingTop": {}, "paddingBottom": {},
+        "itemSpacing": {},
+        "primaryAxisAlign": { "type": ["string", "null"] },
+        "counterAxisAlign": { "type": ["string", "null"] },
+        "sizing": { "type": ["string", "null"], "description": "hug | fill | fixed notes" }
+      }
+    },
+    "tokenCollection": {
+      "type": "object",
+      "required": ["collection", "variables"],
+      "properties": {
+        "collection": { "type": "string" },
+        "id": { "type": ["string", "null"] },
+        "modes": {
+          "type": "array",
+          "items": { "type": "object", "properties": { "name": { "type": "string" }, "id": { "type": "string" } } }
+        },
+        "variables": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "type"],
+            "properties": {
+              "name": { "type": "string", "description": "Dotted name" },
+              "figmaName": { "type": "string", "description": "Original slash-path name" },
+              "key": { "type": ["string", "null"] },
+              "type": { "type": "string", "description": "COLOR | FLOAT | STRING | BOOLEAN" },
+              "valuesByMode": { "type": "object", "description": "modeId -> literal value or { type: VARIABLE_ALIAS, id }" },
+              "resolvedValue": { "type": ["string", "null"], "description": "Resolved literal for the default mode" },
+              "codeSyntax": { "type": ["object", "null"], "description": "Configured code syntax, e.g. { WEB: '--color-...' }" },
+              "description": { "type": ["string", "null"] }
+            }
+          }
+        }
+      }
+    }
+  }
+}

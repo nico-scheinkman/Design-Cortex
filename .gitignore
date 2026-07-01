@@ -1,0 +1,14 @@
+# Generated knowledge base — derived artifact, not source
+kb-output/
+
+# Local config (contains the user's private Figma file URL)
+.ds-kb-config.json
+
+# Local test / stress-test artifacts — may contain proprietary design-system data
+# (extracted components, tokens, internal Figma keys). Never publish these.
+Test/
+test-output/
+
+# OS / editor noise
+.DS_Store
+*.log

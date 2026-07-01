@@ -1,0 +1,11 @@
+{
+  "figma_mcp": "console",
+  "figma_file_url": "https://www.figma.com/design/REPLACE_FILE_KEY/Your-Design-System",
+  "figma_library_urls": [],
+  "storybook_url": "",
+  "frontend_src_path": "./src/components",
+  "output_path": "./kb-output",
+  "atomic_classification": "auto",
+  "freshness_warning_after_days": 7,
+  "include_screenshots": false
+}

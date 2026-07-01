@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "component.schema.json",
+  "title": "Component",
+  "description": "The data model for a single component as stored in the KB. Backs each components/<level>/<Name>/index.md (frontmatter + variant-group list). Written by ds-write from the raw-extract cache; consumed by ds-validate and ds-refresh.",
+  "type": "object",
+  "required": [
+    "name",
+    "category",
+    "figma_component_id",
+    "figma_link",
+    "uses_tokens",
+    "composed_in",
+    "contains",
+    "confidence",
+    "last_updated",
+    "variant_groups"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Raw Figma component name, verbatim. The folder is the slugified form of this."
+    },
+    "category": {
+      "type": "string",
+      "enum": ["atoms", "molecules", "organisms", "_review"],
+      "description": "Atomic level from atomic-classification-rules.md. _review when needs_human_review."
+    },
+    "figma_component_id": {
+      "type": "string",
+      "description": "Session node id of the component / component set (= raw-extract component.nodeId)."
+    },
+    "figma_component_set_id": {
+      "type": ["string", "null"],
+      "description": "Set id; null for a standalone COMPONENT."
+    },
+    "figma_component_key": {
+      "type": "string",
+      "description": "Stable published key — the anchor ds-refresh re-resolves against."
+    },
+    "figma_link": {
+      "type": "string",
+      "description": "Deep link to the node in the Figma file."
+    },
+    "code_component_name": {
+      "type": ["string", "null"],
+      "description": "From Code Connect mapping; null when unmapped."
+    },
+    "code_path": {
+      "type": ["string", "null"],
+      "description": "Source path of the code component; null when unmapped."
+    },
+    "storybook_link": {
+      "type": ["string", "null"],
+      "description": "Story URL if configured; otherwise null."
+    },
+    "uses_tokens": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Deduped dotted token names bound anywhere in the component. [] when nothing is bound (raw-hex-only); flagged in the write report."
+    },
+    "uses_styles": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Shared style names applied (from appliedStyles)."
+    },
+    "composed_in": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Names of components that contain this one (parents in the composition graph). [] if top-level."
+    },
+    "contains": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Names of child components this one composes. [] for an atom."
+    },
+    "similar_to": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Not extractable from Figma; always [] from auto-extraction, human-filled later."
+    },
+    "deprecated_by": {
+      "type": ["array", "null"],
+      "items": { "type": "string" },
+      "description": "null unless a deprecation name-prefix (🚫, Deprecated, Old, [deprecated]) was detected; then the replacement name(s) or ['removed'], flagged for human confirmation."
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["high", "medium", "low", "needs_human_review"],
+      "description": "Computed during classification per confidence-levels.md. Must match the entry in index.json."
+    },
+    "last_updated": {
+      "type": "string",
+      "format": "date",
+      "description": "Date the KB entry was generated (= meta.generatedAt date)."
+    },
+    "total_variants": {
+      "type": "integer",
+      "description": "Count of variants in the set (1 for a standalone COMPONENT)."
+    },
+    "variant_groups": {
+      "type": "array",
+      "description": "One entry per variant axis. Each backs a variants/<group>.md (Tier 2) file.",
+      "items": {
+        "type": "object",
+        "required": ["name", "type", "options", "file"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Axis / property name, verbatim (e.g. 'Hierarchy')."
+          },
+          "type": {
+            "type": "string",
+            "enum": ["VARIANT", "BOOLEAN", "TEXT", "INSTANCE_SWAP", "SLOT"],
+            "description": "Figma property type."
+          },
+          "options": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Verbatim option values — never normalized (preserve deliberate missing spaces)."
+          },
+          "file": {
+            "type": "string",
+            "description": "Relative path to the Tier 2 variant file, e.g. variants/hierarchy.md."
+          }
+        }
+      }
+    }
+  }
+}

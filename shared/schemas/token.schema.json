@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "token.schema.json",
+  "title": "Token",
+  "description": "A single design token entry as stored in the KB. One row of a token table in tokens/<category>/<group>.md. Derived by ds-write from a raw-extract tokenCollection variable; consumed by ds-validate (uses_tokens resolution) and ds-refresh.",
+  "type": "object",
+  "required": ["name", "figma_name", "category", "resolved_value"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Dotted token name as stored in the KB and referenced from uses_tokens, e.g. color.action.primary.background."
+    },
+    "figma_name": {
+      "type": "string",
+      "description": "Original Figma slash-path name, e.g. color/action/primary/background. Kept so ds-refresh can re-match after a rename."
+    },
+    "resolved_value": {
+      "type": ["string", "null"],
+      "description": "Literal value after resolving any VARIABLE_ALIAS chain for the default mode, e.g. #0057FF, 8px, 200ms. null only if genuinely unresolvable; an unresolved alias name is written here and flagged in the report rather than guessed."
+    },
+    "code_syntax": {
+      "type": ["string", "null"],
+      "description": "Configured code-syntax name, verbatim from Figma (e.g. the WEB entry --color-action-primary-bg). null if none configured."
+    },
+    "category": {
+      "type": "string",
+      "enum": ["color", "typography", "spacing", "elevation", "radius", "motion"],
+      "description": "Top-level token category — the folder it lives under."
+    },
+    "group": {
+      "type": ["string", "null"],
+      "description": "Sub-group within the category (e.g. primitives, semantic, component-overrides, scale, roles). null/absent for single-file categories."
+    },
+    "usage": {
+      "type": ["string", "null"],
+      "description": "Where/why the token is used — from the Figma variable description. null if no description; never invented."
+    },
+    "type": {
+      "type": "string",
+      "enum": ["COLOR", "FLOAT", "STRING", "BOOLEAN"],
+      "description": "Figma variable resolved type."
+    },
+    "key": {
+      "type": ["string", "null"],
+      "description": "Stable variable key, when published — the anchor ds-refresh re-resolves against."
+    },
+    "description": {
+      "type": ["string", "null"],
+      "description": "Raw Figma variable description (source for usage)."
+    }
+  }
+}
