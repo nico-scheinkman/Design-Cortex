@@ -42,7 +42,7 @@ Four skills, run in order:
 |---|---|---|
 | `ds-extract` | "build my KB" | Crawls Figma via batched subagents, writes a sharded `kb-output/.cache/` (per-component shards + tokens + icons manifest) + a gap report |
 | `ds-write` | runs after extract | Fans out subagents to turn the cache shards into the full `kb-output/` folder of markdown |
-| `ds-refresh` | "refresh my KB" | Re-extracts, diffs by component key, updates — never touches your manual edits |
+| `ds-refresh` | "refresh my KB" | Re-extracts, diffs by component key, updates; never touches your manual edits |
 | `ds-validate` | "validate my KB" | Checks completeness, broken references, freshness |
 
 The generator is **MCP-agnostic**: it calls Figma tools by logical function and adapts to whichever MCP you have (official remote, desktop, Figma Console, or custom). See `skills/ds-extract/references/mcp-tool-map.md`.
