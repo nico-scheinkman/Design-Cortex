@@ -1,10 +1,10 @@
 <p align="center">
-  <img src="assets/cover.png" alt="Design Cortex — automated Figma → markdown knowledge-base generator" width="820">
+  <img src="assets/cover.png" alt="Design Cortex: automated Figma to markdown knowledge-base generator" width="820">
 </p>
 
 # Design System KB Generator
 
-Point an AI agent at your Figma design system, run it once, and get a structured, two-tier markdown **knowledge base** of your entire system — every component, variant, token, and composition rule — that any agent (Cursor, Claude Code, …) can read at session start instead of querying Figma live.
+Point an AI agent at your Figma design system, run it once, and get a structured, two-tier markdown **knowledge base** of your entire system: every component, variant, token, and composition rule. Any agent (Cursor, Claude Code, …) can read it at session start instead of querying Figma live.
 
 **No API keys. No Python. No infrastructure.** Just an agent, a Figma MCP connection, and a folder of markdown.
 
@@ -13,8 +13,8 @@ Point an AI agent at your Figma design system, run it once, and get a structured
 ## Requirements
 
 - An **AI coding agent** that supports skills / long-form instructions and tool calls (e.g. Claude Code, or any agent you can point at the `SKILL.md` protocols).
-- A **Figma MCP** connection to the file you want to extract — official remote, Figma desktop, Figma Console, or a custom MCP (see `SETUP.md`).
-- **View access** to the Figma design-system file. The generator is strictly **read-only** against Figma — it never modifies your file.
+- A **Figma MCP** connection to the file you want to extract: official remote, Figma desktop, Figma Console, or a custom MCP (see `SETUP.md`).
+- **View access** to the Figma design-system file. The generator is strictly **read-only** against Figma; it never modifies your file.
 
 No accounts, keys, or servers beyond your existing agent + MCP.
 
@@ -22,13 +22,13 @@ No accounts, keys, or servers beyond your existing agent + MCP.
 
 ## Scale
 
-Extraction runs as **batched, parallel subagents** writing a **sharded cache**, so nothing heavy sits in a single context window. It has been run end-to-end against a large production design system (~530 components / 133 sets / ~5,000 variants / 1,439 tokens). Very large flat icon sets collapse into a single manifest, and huge variant matrices can be sampled — so the KB (and every consuming agent's first load) stays small regardless of system size.
+Extraction runs as **batched, parallel subagents** writing a **sharded cache**, so nothing heavy sits in a single context window. It has been run end-to-end against a large production design system (~530 components / 133 sets / ~5,000 variants / 1,439 tokens). Very large flat icon sets collapse into a single manifest, and huge variant matrices can be sampled, so the KB (and every consuming agent's first load) stays small regardless of system size.
 
 ---
 
 ## Why
 
-Agents querying Figma at task time is slow, expensive, and fragile. This generator does a one-time extraction into a portable KB. Agents then load `index.json`, navigate to the one component or token file they need, and work from that — never opening Figma during the task.
+Agents querying Figma at task time is slow, expensive, and fragile. This generator does a one-time extraction into a portable KB. Agents then load `index.json`, navigate to the one component or token file they need, and work from that, never opening Figma during the task.
 
 **The KB is the interface between your design system and the agent.**
 
@@ -45,7 +45,7 @@ Four skills, run in order:
 | `ds-refresh` | "refresh my KB" | Re-extracts, diffs by component key, updates — never touches your manual edits |
 | `ds-validate` | "validate my KB" | Checks completeness, broken references, freshness |
 
-The generator is **MCP-agnostic** — it calls Figma tools by logical function and adapts to whichever MCP you have (official remote, desktop, Figma Console, or custom). See `skills/ds-extract/references/mcp-tool-map.md`.
+The generator is **MCP-agnostic**: it calls Figma tools by logical function and adapts to whichever MCP you have (official remote, desktop, Figma Console, or custom). See `skills/ds-extract/references/mcp-tool-map.md`.
 
 ---
 
@@ -70,7 +70,7 @@ An agent loads `index.json` → a component's `index.md` → only the variant sl
 
 ## Install
 
-**Via npm (recommended)** — installs the skills into your project's `.claude/` and scaffolds the config:
+**Via npm (recommended).** Installs the skills into your project's `.claude/` and scaffolds the config:
 
 ```bash
 npx design-cortex init          # in your project root
@@ -78,13 +78,13 @@ npx design-cortex init          # in your project root
 
 This drops the four skills into `.claude/skills/`, the schemas/references into `.claude/shared/`, and a `.ds-kb-config.json` template at the root. Nothing to build, no dependencies.
 
-**Or clone** and copy the `skills/` + `shared/` folders yourself — see `SETUP.md`.
+**Or clone** and copy the `skills/` + `shared/` folders yourself; see `SETUP.md`.
 
 ---
 
 ## Quickstart
 
-1. `npx design-cortex init` (or fill in `.ds-kb-config.json` from the example) — set `figma_mcp` and `figma_file_url`.
+1. `npx design-cortex init` (or fill in `.ds-kb-config.json` from the example), then set `figma_mcp` and `figma_file_url`.
 2. Connect your Figma MCP to the file.
 3. Run `ds-extract` (e.g. say "build my design system KB").
 4. `ds-write` runs automatically and produces `kb-output/`.
@@ -97,7 +97,7 @@ Full setup, MCP options, and manual skill installation: **`SETUP.md`**.
 
 ## What this is not
 
-Not a governance tool. Not a vector DB or semantic search. Not a Figma plugin (runs via your agent, not inside Figma). Not opinionated about which agent, IDE, or MCP you use. The KB is a **derived artifact** — Figma stays the source of truth.
+Not a governance tool. Not a vector DB or semantic search. Not a Figma plugin (runs via your agent, not inside Figma). Not opinionated about which agent, IDE, or MCP you use. The KB is a **derived artifact**; Figma stays the source of truth.
 
 ---
 
